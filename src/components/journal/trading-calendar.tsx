@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,8 +27,8 @@ function fmt(n: number) { return n.toLocaleString("en-US", { minimumFractionDigi
 
 export function TradingCalendar({ calendarDays, recentDays, year: initialYear, month: initialMonth }: Props) {
   const router = useRouter();
-  const [year, setYear] = useState(initialYear);
-  const [month, setMonth] = useState(initialMonth);
+  const year = initialYear;
+  const month = initialMonth;
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -37,14 +36,14 @@ export function TradingCalendar({ calendarDays, recentDays, year: initialYear, m
   for (const d of calendarDays) dayMap[d.date] = d;
 
   function prevMonth() {
-    if (month === 1) { setMonth(12); setYear(y => y - 1); }
-    else setMonth(m => m - 1);
+    if (month === 1) router.push(`/journal/calendar?year=${year - 1}&month=12`);
+    else router.push(`/journal/calendar?year=${year}&month=${month - 1}`);
   }
   function nextMonth() {
     const now = new Date();
     if (year === now.getFullYear() && month === now.getMonth() + 1) return;
-    if (month === 12) { setMonth(1); setYear(y => y + 1); }
-    else setMonth(m => m + 1);
+    if (month === 12) router.push(`/journal/calendar?year=${year + 1}&month=1`);
+    else router.push(`/journal/calendar?year=${year}&month=${month + 1}`);
   }
 
   const firstDay = getFirstDayOfMonth(year, month);
