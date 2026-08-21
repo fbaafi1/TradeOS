@@ -29,7 +29,9 @@ function getUserId() {
 function revalidateDay(date: string) {
   revalidatePath(`/day/${date}`);
   revalidatePath("/dashboard");
+  revalidatePath("/journal");
   revalidatePath("/journal/calendar");
+  revalidatePath("/analytics/performance");
 }
 
 // ============================================================
