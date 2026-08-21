@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { getRecentTradingDays, getJournalTrades, getCurrentLosingStreak } from "@/lib/data/trading-os-queries";
 import { getRiskSettings } from "@/lib/data/queries";
 import {
@@ -18,10 +16,6 @@ function getLast30Days() {
 }
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
   const today = getTodayDate();
 
   const [recentDays, trades, losingStreak, riskSettings] = await Promise.all([
@@ -30,6 +24,7 @@ export default async function DashboardPage() {
     getCurrentLosingStreak(),
     getRiskSettings(),
   ]);
+
 
   // Compute stats
   const closed = trades.filter(t => t.result !== "open" && t.result !== "cancelled");
