@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, Trash2, Edit2, Save, X, Loader2, GripVertical, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TradeOsRule } from "@/types/trading-os";
-import { createAdminClient, getSingleUserId } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
 interface Props { rules: TradeOsRule[]; }
@@ -29,8 +29,9 @@ export function TradeOsRulesEditor({ rules: initial }: Props) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
 
-  const db = createAdminClient() as any;
-  const userId = getSingleUserId();
+  // RLS is disabled — anon key can read/write freely (single-user mode)
+  const db = createClient() as any;
+  const userId = process.env.NEXT_PUBLIC_SINGLE_USER_ID ?? "00000000-0000-0000-0000-000000000001";
 
   async function refreshRules() {
     const { data } = await db.from("trade_os_rules").select("*").eq("user_id", userId).order("section").order("sort_order");

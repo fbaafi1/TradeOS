@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, Trash2, Edit2, Save, X, Loader2, Check, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NoTradeCondition } from "@/types/trading-os";
-import { createAdminClient, getSingleUserId } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/client";
 
 interface Props { conditions: NoTradeCondition[]; }
 
@@ -17,8 +17,9 @@ export function NoTradeConditionsEditor({ conditions: initial }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
-  const db = createAdminClient() as any;
-  const userId = getSingleUserId();
+  // RLS is disabled — anon key can read/write freely (single-user mode)
+  const db = createClient() as any;
+  const userId = process.env.NEXT_PUBLIC_SINGLE_USER_ID ?? "00000000-0000-0000-0000-000000000001";
 
   async function refresh() {
     const { data } = await db.from("no_trade_conditions").select("*").eq("user_id", userId).order("sort_order");
