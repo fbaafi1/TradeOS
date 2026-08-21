@@ -7,17 +7,9 @@
 
 DO $$
 DECLARE
-  v_user_id UUID;
+  -- ⚠️ Replace this with your SINGLE_USER_ID from .env.local
+  v_user_id UUID := '00000000-0000-0000-0000-000000000001';
 BEGIN
-  -- Get your user ID (the currently authenticated user)
-  -- If you're running this from the SQL Editor, replace with your actual user ID
-  -- You can find it in: Authentication → Users → copy the UUID
-  SELECT id INTO v_user_id FROM auth.users LIMIT 1;
-
-  IF v_user_id IS NULL THEN
-    RAISE EXCEPTION 'No user found. Make sure you are logged in.';
-  END IF;
-
   RAISE NOTICE 'Seeding defaults for user: %', v_user_id;
 
   -- ──────────────────────────────────────────────────────────

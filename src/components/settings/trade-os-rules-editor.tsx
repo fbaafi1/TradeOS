@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, Trash2, Edit2, Save, X, Loader2, GripVertical, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TradeOsRule } from "@/types/trading-os";
-import { createClient } from "@/lib/supabase/client";
+import { createAdminClient, getSingleUserId } from "@/lib/supabase/admin";
 import { useRouter } from "next/navigation";
 
 interface Props { rules: TradeOsRule[]; }
@@ -29,23 +29,18 @@ export function TradeOsRulesEditor({ rules: initial }: Props) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
 
-  const supabase = createClient();
+  const db = createAdminClient() as any;
+  const userId = getSingleUserId();
 
   async function refreshRules() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const db = supabase as any;
-    const { data } = await db.from("trade_os_rules").select("*").eq("user_id", user.id).order("section").order("sort_order");
+    const { data } = await db.from("trade_os_rules").select("*").eq("user_id", userId).order("section").order("sort_order");
     if (data) setRules(data as TradeOsRule[]);
   }
 
   function handleAdd() {
     startTransition(async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const db = supabase as any;
       const maxOrder = rules.filter(r => r.section === form.section).reduce((m, r) => Math.max(m, r.sort_order), 0);
-      await db.from("trade_os_rules").insert({ ...form, user_id: user.id, sort_order: maxOrder + 1 });
+      await db.from("trade_os_rules").insert({ ...form, user_id: userId, sort_order: maxOrder + 1 });
       await refreshRules();
       setShowAdd(false);
       setForm(EMPTY_FORM);
@@ -59,7 +54,7 @@ export function TradeOsRulesEditor({ rules: initial }: Props) {
 
   function handleUpdate() {
     startTransition(async () => {
-      await (supabase as any).from("trade_os_rules").update(editForm).eq("id", editingId!);
+      await db.from("trade_os_rules").update(editForm).eq("id", editingId!);
       await refreshRules();
       setEditingId(null);
     });
@@ -67,13 +62,13 @@ export function TradeOsRulesEditor({ rules: initial }: Props) {
 
   function handleDelete(id: string) {
     startTransition(async () => {
-      await (supabase as any).from("trade_os_rules").delete().eq("id", id);
+      await db.from("trade_os_rules").delete().eq("id", id);
       setRules(prev => prev.filter(r => r.id !== id));
     });
   }
 
   async function handleToggle(rule: TradeOsRule) {
-    await (supabase as any).from("trade_os_rules").update({ is_active: !rule.is_active }).eq("id", rule.id);
+    await db.from("trade_os_rules").update({ is_active: !rule.is_active }).eq("id", rule.id);
     setRules(prev => prev.map(r => r.id === rule.id ? { ...r, is_active: !r.is_active } : r));
   }
 

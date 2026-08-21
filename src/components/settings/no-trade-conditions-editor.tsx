@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { Plus, Trash2, Edit2, Save, X, Loader2, Check, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NoTradeCondition } from "@/types/trading-os";
-import { createClient } from "@/lib/supabase/client";
+import { createAdminClient, getSingleUserId } from "@/lib/supabase/admin";
 
 interface Props { conditions: NoTradeCondition[]; }
 
@@ -17,23 +17,18 @@ export function NoTradeConditionsEditor({ conditions: initial }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [editForm, setEditForm] = useState(EMPTY_FORM);
-  const supabase = createClient();
+  const db = createAdminClient() as any;
+  const userId = getSingleUserId();
 
   async function refresh() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const db = supabase as any;
-    const { data } = await db.from("no_trade_conditions").select("*").eq("user_id", user.id).order("sort_order");
+    const { data } = await db.from("no_trade_conditions").select("*").eq("user_id", userId).order("sort_order");
     if (data) setConditions(data as NoTradeCondition[]);
   }
 
   function handleAdd() {
     startTransition(async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const db = supabase as any;
       const maxOrder = conditions.reduce((m, c) => Math.max(m, c.sort_order), 0);
-      await db.from("no_trade_conditions").insert({ ...form, user_id: user.id, sort_order: maxOrder + 1 });
+      await db.from("no_trade_conditions").insert({ ...form, user_id: userId, sort_order: maxOrder + 1 });
       await refresh();
       setShowAdd(false);
       setForm(EMPTY_FORM);
@@ -42,7 +37,7 @@ export function NoTradeConditionsEditor({ conditions: initial }: Props) {
 
   function handleUpdate() {
     startTransition(async () => {
-      await (supabase as any).from("no_trade_conditions").update(editForm).eq("id", editingId!);
+      await db.from("no_trade_conditions").update(editForm).eq("id", editingId!);
       await refresh();
       setEditingId(null);
     });
@@ -50,13 +45,13 @@ export function NoTradeConditionsEditor({ conditions: initial }: Props) {
 
   function handleDelete(id: string) {
     startTransition(async () => {
-      await (supabase as any).from("no_trade_conditions").delete().eq("id", id);
+      await db.from("no_trade_conditions").delete().eq("id", id);
       setConditions(prev => prev.filter(c => c.id !== id));
     });
   }
 
   async function handleToggle(cond: NoTradeCondition) {
-    await (supabase as any).from("no_trade_conditions").update({ is_active: !cond.is_active }).eq("id", cond.id);
+    await db.from("no_trade_conditions").update({ is_active: !cond.is_active }).eq("id", cond.id);
     setConditions(prev => prev.map(c => c.id === cond.id ? { ...c, is_active: !c.is_active } : c));
   }
 

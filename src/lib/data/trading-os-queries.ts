@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, getSingleUserId } from "@/lib/supabase/admin";
 import type {
   TradingDay,
   PreMarketChecklist,
@@ -15,33 +15,34 @@ import type {
   CalendarDayData,
 } from "@/types/trading-os";
 
-// ============================================================
-// HELPER — bypass Supabase generated type system for new tables
-// ============================================================
-async function getDb() {
-  const supabase = await createClient();
-  return supabase as any;
+function getDb() {
+  return createAdminClient() as any;
+}
+function getUserId() {
+  return getSingleUserId();
 }
 
 // ============================================================
-// TRADING DAY QUERIES
+// TRADING DAY
 // ============================================================
 export async function getTradingDay(date: string): Promise<TradingDay | null> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("trading_days")
     .select("*")
+    .eq("user_id", getUserId())
     .eq("trade_date", date)
     .single();
   return data as TradingDay | null;
 }
 
 export async function getTradingDayFull(date: string): Promise<TradingDayFull | null> {
-  const db = await getDb();
+  const db = getDb();
 
   const { data: day } = await db
     .from("trading_days")
     .select("*")
+    .eq("user_id", getUserId())
     .eq("trade_date", date)
     .single();
 
@@ -59,34 +60,23 @@ export async function getTradingDayFull(date: string): Promise<TradingDayFull | 
       db.from("eod_reviews").select("*").eq("trading_day_id", d.id).single().then((r: any) => r.data as EodReview | null),
     ]);
 
-  return {
-    ...d,
-    pre_market: preMarket,
-    no_trade_filter: noTradeFilter,
-    news_events: newsEvents,
-    market_analysis: marketAnalysis,
-    psychology: psychology,
-    trades: trades,
-    eod_review: eodReview,
-  };
+  return { ...d, pre_market: preMarket, no_trade_filter: noTradeFilter, news_events: newsEvents, market_analysis: marketAnalysis, psychology, trades, eod_review: eodReview };
 }
 
 export async function getCalendarDays(year: number, month: number): Promise<CalendarDayData[]> {
-  const db = await getDb();
+  const db = getDb();
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
   const endDate = new Date(year, month, 0).toISOString().split("T")[0];
 
   const { data: days } = await db
     .from("trading_days")
     .select("id, trade_date, status, total_pnl, total_trades, rule_violations, no_trade_blocked")
+    .eq("user_id", getUserId())
     .gte("trade_date", startDate)
     .lte("trade_date", endDate)
     .order("trade_date");
 
-  const { data: eodDays } = await db
-    .from("eod_reviews")
-    .select("trading_day_id");
-
+  const { data: eodDays } = await db.from("eod_reviews").select("trading_day_id");
   const eodSet = new Set((eodDays ?? []).map((e: { trading_day_id: string }) => e.trading_day_id));
 
   return (days ?? []).map((day: any) => {
@@ -96,25 +86,16 @@ export async function getCalendarDays(year: number, month: number): Promise<Cale
     else if (eodSet.has(day.id)) indicator = "complete";
     else if (day.total_pnl > 0) indicator = "profitable";
     else if (day.total_pnl < 0) indicator = "losing";
-
-    return {
-      date: day.trade_date,
-      status: day.status,
-      total_pnl: day.total_pnl,
-      total_trades: day.total_trades,
-      rule_violations: day.rule_violations,
-      no_trade_blocked: day.no_trade_blocked,
-      eod_complete: eodSet.has(day.id),
-      indicator,
-    };
+    return { date: day.trade_date, status: day.status, total_pnl: day.total_pnl, total_trades: day.total_trades, rule_violations: day.rule_violations, no_trade_blocked: day.no_trade_blocked, eod_complete: eodSet.has(day.id), indicator };
   });
 }
 
 export async function getRecentTradingDays(limit = 30): Promise<TradingDay[]> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("trading_days")
     .select("*")
+    .eq("user_id", getUserId())
     .order("trade_date", { ascending: false })
     .limit(limit);
   return (data ?? []) as TradingDay[];
@@ -124,20 +105,22 @@ export async function getRecentTradingDays(limit = 30): Promise<TradingDay[]> {
 // NO-TRADE CONDITIONS
 // ============================================================
 export async function getNoTradeConditions(): Promise<NoTradeCondition[]> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("no_trade_conditions")
     .select("*")
+    .eq("user_id", getUserId())
     .eq("is_active", true)
     .order("sort_order");
   return (data ?? []) as NoTradeCondition[];
 }
 
 export async function getAllNoTradeConditions(): Promise<NoTradeCondition[]> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("no_trade_conditions")
     .select("*")
+    .eq("user_id", getUserId())
     .order("sort_order");
   return (data ?? []) as NoTradeCondition[];
 }
@@ -146,20 +129,22 @@ export async function getAllNoTradeConditions(): Promise<NoTradeCondition[]> {
 // TRADE OS RULES
 // ============================================================
 export async function getTradeOsRules(): Promise<TradeOsRule[]> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("trade_os_rules")
     .select("*")
+    .eq("user_id", getUserId())
     .eq("is_active", true)
     .order("sort_order");
   return (data ?? []) as TradeOsRule[];
 }
 
 export async function getAllTradeOsRules(): Promise<TradeOsRule[]> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("trade_os_rules")
     .select("*")
+    .eq("user_id", getUserId())
     .order("section")
     .order("sort_order");
   return (data ?? []) as TradeOsRule[];
@@ -169,10 +154,11 @@ export async function getAllTradeOsRules(): Promise<TradeOsRule[]> {
 // JOURNAL TRADES
 // ============================================================
 export async function getJournalTrades(limit?: number): Promise<JournalTrade[]> {
-  const db = await getDb();
+  const db = getDb();
   let query = db
     .from("journal_trades")
     .select("*")
+    .eq("user_id", getUserId())
     .order("trade_date", { ascending: false })
     .order("trade_number", { ascending: false });
   if (limit) query = query.limit(limit);
@@ -181,7 +167,7 @@ export async function getJournalTrades(limit?: number): Promise<JournalTrade[]> 
 }
 
 export async function getPostTradeReviews(): Promise<PostTradeReview[]> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db.from("post_trade_reviews").select("*");
   return (data ?? []) as PostTradeReview[];
 }
@@ -190,10 +176,11 @@ export async function getPostTradeReviews(): Promise<PostTradeReview[]> {
 // LOSING STREAK
 // ============================================================
 export async function getCurrentLosingStreak(): Promise<number> {
-  const db = await getDb();
+  const db = getDb();
   const { data } = await db
     .from("journal_trades")
     .select("result")
+    .eq("user_id", getUserId())
     .neq("result", "open")
     .neq("result", "cancelled")
     .order("trade_date", { ascending: false })
