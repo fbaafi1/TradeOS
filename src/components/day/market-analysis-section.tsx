@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { LineChart, Save, Loader2, ArrowRight, Image } from "lucide-react";
+import { LineChart, Save, Loader2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { saveMarketAnalysis } from "@/lib/actions/trading-os";
+import { uploadScreenshot, deleteScreenshot } from "@/lib/actions/screenshots";
+import { ScreenshotUpload } from "@/components/shared/screenshot-upload";
 import type { TradingDayFull, DailyMarketAnalysis } from "@/types/trading-os";
 import { HIGHER_TIMEFRAMES, ENTRY_TIMEFRAMES } from "@/types/trading-os";
 
@@ -32,6 +34,7 @@ function TimeframePanel({
   const [structure, setStructure] = useState(analysis?.structure ?? "");
   const [liquidity, setLiquidity] = useState(analysis?.liquidity ?? "");
   const [notes, setNotes] = useState(analysis?.notes ?? "");
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(analysis?.screenshot_path ?? null);
   const [saved, setSaved] = useState(false);
 
   const group = [...HIGHER_TIMEFRAMES].includes(timeframe as typeof HIGHER_TIMEFRAMES[number]) ? "higher" : "entry";
@@ -44,10 +47,22 @@ function TimeframePanel({
         structure: structure || null,
         liquidity: liquidity || null,
         notes: notes || null,
+        screenshot_path: screenshotUrl,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     });
+  }
+
+  async function handleScreenshotUploaded(url: string) {
+    setScreenshotUrl(url);
+    // Auto-save the URL to the analysis record immediately
+    await saveMarketAnalysis(dayId, timeframe, { screenshot_path: url });
+  }
+
+  async function handleScreenshotDeleted() {
+    setScreenshotUrl(null);
+    await saveMarketAnalysis(dayId, timeframe, { screenshot_path: null });
   }
 
   return (
@@ -143,11 +158,14 @@ function TimeframePanel({
         />
       </div>
 
-      {/* Screenshot placeholder */}
-      <div className="rounded-lg border border-dashed border-border/60 bg-background/40 px-4 py-3 flex items-center gap-2 text-muted-foreground/50">
-        <Image className="h-4 w-4" />
-        <span className="text-xs">Screenshot upload — connect Supabase Storage to enable</span>
-      </div>
+      {/* Screenshot */}
+      <ScreenshotUpload
+        currentUrl={screenshotUrl}
+        folder={`analysis/${dayId}`}
+        label="Chart Screenshot"
+        onUploaded={handleScreenshotUploaded}
+        onDeleted={handleScreenshotDeleted}
+      />
     </div>
   );
 }
