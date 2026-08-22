@@ -3,7 +3,9 @@
 import { useState, useTransition } from "react";
 import { FlaskConical, Plus, X, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Trash2, ArrowRight, AlertTriangle, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { createJournalTrade, deleteJournalTrade } from "@/lib/actions/trading-os";
+import { createJournalTrade, deleteJournalTrade, updateJournalTrade } from "@/lib/actions/trading-os";
+import { attachTradeScreenshot, deleteScreenshot } from "@/lib/actions/screenshots";
+import { ScreenshotUpload } from "@/components/shared/screenshot-upload";
 import type { TradingDayFull, JournalTrade, TradeResult } from "@/types/trading-os";
 import { PSYCHOLOGY_OPTIONS, DEFAULT_PAIRS, TRADING_SESSIONS } from "@/types/trading-os";
 
@@ -23,9 +25,36 @@ interface FormData {
 }
 const EMPTY: FormData = { pair:"EURUSD", direction:"buy", trade_time:"", session:"", entry_price:"", stop_loss:"", take_profit:"", lot_size:"", exit_price:"", account_size:"10000", risk_percent:"1", result:"open", pnl:"", r_multiple:"", entry_model:"", psychology_before:[], notes:"" };
 
-function TradeCard({ trade, onDelete }: { trade: JournalTrade; onDelete: () => void }) {
+// ── TradeCard ────────────────────────────────────────────────
+function TradeCard({
+  trade,
+  onDelete,
+  onScreenshotChange,
+}: {
+  trade: JournalTrade;
+  onDelete: () => void;
+  onScreenshotChange: (id: string, url: string | null) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [del, startDel] = useTransition();
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(trade.screenshot_path ?? null);
+
+  async function handleScreenshotUploaded(url: string) {
+    setScreenshotUrl(url);
+    onScreenshotChange(trade.id, url);
+    // attachTradeScreenshot handles delete-old + updateJournalTrade internally
+    const fd = new FormData();
+    // We already uploaded via ScreenshotUpload, just update the DB record
+    await updateJournalTrade(trade.id, { screenshot_path: url });
+  }
+
+  async function handleScreenshotDeleted() {
+    if (screenshotUrl) await deleteScreenshot(screenshotUrl);
+    await updateJournalTrade(trade.id, { screenshot_path: null });
+    setScreenshotUrl(null);
+    onScreenshotChange(trade.id, null);
+  }
+
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors text-left" onClick={() => setExpanded(!expanded)}>
@@ -38,21 +67,45 @@ function TradeCard({ trade, onDelete }: { trade: JournalTrade; onDelete: () => v
         <span className={cn("ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase border", RESULT_COLORS[trade.result])}>{trade.result}</span>
         {trade.pnl!=null && <span className={cn("text-sm font-bold tabular-nums ml-2", trade.pnl>=0?"text-profit":"text-loss")}>{trade.pnl>=0?"+":""} ${fmt(Math.abs(trade.pnl))}</span>}
         {trade.r_multiple!=null && <span className="text-xs text-muted-foreground tabular-nums">{trade.r_multiple>=0?"+":""}{fmt(trade.r_multiple)}R</span>}
+        {screenshotUrl && <span className="h-2 w-2 rounded-full bg-blue-400 flex-shrink-0" title="Has screenshot" />}
         {expanded?<ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0"/>:<ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0"/>}
       </button>
+
       {expanded && (
-        <div className="border-t border-border px-4 py-3 bg-accent/10 space-y-3">
+        <div className="border-t border-border px-4 py-4 bg-accent/10 space-y-4">
+          {/* Prices grid */}
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
             {[["Entry",trade.entry_price],["SL",trade.stop_loss],["TP",trade.take_profit],["Exit",trade.exit_price],["Lots",trade.lot_size],["Risk%",trade.risk_percent!=null?`${trade.risk_percent}%`:null],["Risk$",trade.risk_amount!=null?`$${fmt(trade.risk_amount)}`:null],["R:R",trade.rr_ratio!=null?`1:${trade.rr_ratio}`:null]].map(([l,v])=>v!=null?(
               <div key={l as string}><p className="text-muted-foreground">{l}</p><p className="font-semibold tabular-nums">{String(v)}</p></div>
             ):null)}
           </div>
+
           {trade.entry_model && <p className="text-xs"><span className="text-muted-foreground">Model: </span><span className="font-medium">{trade.entry_model}</span></p>}
-          {trade.notes && <p className="text-xs text-muted-foreground italic">{trade.notes}</p>}
-          {trade.psychology_before.length>0 && <div className="flex flex-wrap gap-1">{trade.psychology_before.map((p)=><span key={p} className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px]">{p}</span>)}</div>}
-          <div className="flex justify-end">
-            <button onClick={()=>startDel(async()=>{await deleteJournalTrade(trade.id);onDelete();})} disabled={del} className="flex items-center gap-1.5 rounded-md px-3 h-7 text-xs text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors">
-              {del?<Loader2 className="h-3 w-3 animate-spin"/>:<Trash2 className="h-3 w-3"/>} Delete
+          {trade.session && <p className="text-xs"><span className="text-muted-foreground">Session: </span><span className="font-medium">{trade.session}</span></p>}
+          {trade.notes && <p className="text-xs text-muted-foreground italic border-l-2 border-border pl-2">{trade.notes}</p>}
+          {trade.psychology_before.length>0 && (
+            <div className="flex flex-wrap gap-1">
+              {trade.psychology_before.map((p)=><span key={p} className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px]">{p}</span>)}
+            </div>
+          )}
+
+          {/* Screenshot Upload */}
+          <ScreenshotUpload
+            currentUrl={screenshotUrl}
+            folder={`trades/${trade.trading_day_id}`}
+            label="Trade Screenshot"
+            onUploaded={handleScreenshotUploaded}
+            onDeleted={handleScreenshotDeleted}
+          />
+
+          {/* Delete */}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={() => startDel(async () => { await deleteJournalTrade(trade.id); onDelete(); })}
+              disabled={del}
+              className="flex items-center gap-1.5 rounded-md px-3 h-7 text-xs text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors"
+            >
+              {del?<Loader2 className="h-3 w-3 animate-spin"/>:<Trash2 className="h-3 w-3"/>} Delete Trade
             </button>
           </div>
         </div>
@@ -61,14 +114,22 @@ function TradeCard({ trade, onDelete }: { trade: JournalTrade; onDelete: () => v
   );
 }
 
+// ── TradeExecutionSection ────────────────────────────────────
 export function TradeExecutionSection({ day, onNext }: Props) {
   const [isPending, startTransition] = useTransition();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormData>(EMPTY);
+  // Manage trades in local state so delete/add refresh without full page reload
+  const [trades, setTrades] = useState<JournalTrade[]>(day.trades);
+
   const rr = calcRR(form.entry_price, form.stop_loss, form.take_profit);
   const riskAmount = calcRiskAmount(form.account_size, form.risk_percent);
   const hasRevenge = form.psychology_before.includes("Revenge trading");
-  function togglePsych(val: string) { setForm(f=>({...f,psychology_before:f.psychology_before.includes(val)?f.psychology_before.filter(v=>v!==val):[...f.psychology_before,val]})); }
+
+  function togglePsych(val: string) {
+    setForm(f=>({...f,psychology_before:f.psychology_before.includes(val)?f.psychology_before.filter(v=>v!==val):[...f.psychology_before,val]}));
+  }
+
   function handleSubmit() {
     startTransition(async()=>{
       const created = await createJournalTrade(day.id,{
@@ -80,9 +141,22 @@ export function TradeExecutionSection({ day, onNext }: Props) {
         result:form.result, pnl:form.pnl?parseFloat(form.pnl):null, r_multiple:form.r_multiple?parseFloat(form.r_multiple):null,
         entry_model:form.entry_model||null, psychology_before:form.psychology_before, notes:form.notes||null,
       });
-      if(created){setShowForm(false);setForm(EMPTY);}
+      if(created){
+        setTrades(prev => [...prev, created]);
+        setShowForm(false);
+        setForm(EMPTY);
+      }
     });
   }
+
+  function handleDelete(id: string) {
+    setTrades(prev => prev.filter(t => t.id !== id));
+  }
+
+  function handleScreenshotChange(id: string, url: string | null) {
+    setTrades(prev => prev.map(t => t.id === id ? { ...t, screenshot_path: url } : t));
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 mb-2">
@@ -92,16 +166,20 @@ export function TradeExecutionSection({ day, onNext }: Props) {
           <Plus className="h-3.5 w-3.5"/> Log Trade
         </button>
       </div>
+
+      {/* Revenge trading warning */}
       {hasRevenge&&showForm&&(
         <div className="rounded-xl border-2 border-loss bg-loss/5 p-3 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-loss flex-shrink-0"/>
           <p className="text-xs font-bold text-loss">⚠ REVENGE TRADING DETECTED — Are you sure you want to take this trade?</p>
         </div>
       )}
+
+      {/* New trade form */}
       {showForm&&(
         <div className="rounded-xl border border-primary/20 bg-card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-bold">New Trade — #{day.trades.length+1}</p>
+            <p className="text-sm font-bold">New Trade — #{trades.length+1}</p>
             <button onClick={()=>setShowForm(false)} className="p-1 rounded hover:bg-accent text-muted-foreground"><X className="h-4 w-4"/></button>
           </div>
           {/* Pair + Direction + Time */}
@@ -182,19 +260,84 @@ export function TradeExecutionSection({ day, onNext }: Props) {
           </div>
         </div>
       )}
+
+      {/* Trade list */}
       <div className="space-y-2">
-        {day.trades.length>0 ? day.trades.map(t=><TradeCard key={t.id} trade={t} onDelete={()=>{}}/>) : (
+        {trades.length > 0 ? trades.map(t => (
+          <TradeCard
+            key={t.id}
+            trade={t}
+            onDelete={() => handleDelete(t.id)}
+            onScreenshotChange={handleScreenshotChange}
+          />
+        )) : (
           <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
             <FlaskConical className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2"/>
             <p className="text-sm text-muted-foreground">No trades logged today</p>
           </div>
         )}
       </div>
+
       <div className="flex justify-end pt-2">
         <button onClick={onNext} className="flex items-center gap-2 rounded-md bg-primary text-primary-foreground px-4 h-9 text-sm font-semibold hover:bg-primary/90 transition-colors">
           Continue to Post-Trade Review <ArrowRight className="h-3.5 w-3.5"/>
         </button>
       </div>
+    </div>
+  );
+}
+
+
+interface Props { day: TradingDayFull; onNext: () => void; }
+
+const ENTRY_MODELS = ["ICT Order Block","Fair Value Gap (FVG)","Market Structure Shift (MSS)","Breaker Block","Mitigation Block","OTE","Liquidity Sweep + Reversal","CISD","Other"];
+const RESULT_COLORS: Record<TradeResult, string> = { open:"bg-blue-400/10 text-blue-400 border-blue-400/30", win:"bg-profit/10 text-profit border-profit/30", loss:"bg-loss/10 text-loss border-loss/30", breakeven:"bg-muted text-muted-foreground border-border", cancelled:"bg-muted/50 text-muted-foreground/60 border-border/40" };
+function fmt(n: number, d = 2) { return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); }
+function calcRR(entry: string, sl: string, tp: string) { const e = parseFloat(entry), s = parseFloat(sl), t = parseFloat(tp); if (!e||!s||!t) return null; const risk = Math.abs(e-s), reward = Math.abs(t-e); return risk===0 ? null : parseFloat((reward/risk).toFixed(2)); }
+function calcRiskAmount(account: string, pct: string) { const a = parseFloat(account), r = parseFloat(pct); return (!a||!r) ? null : parseFloat(((a*r)/100).toFixed(2)); }
+
+interface FormData {
+  pair: string; direction: "buy"|"sell"; trade_time: string; session: string;
+  entry_price: string; stop_loss: string; take_profit: string; lot_size: string; exit_price: string;
+  account_size: string; risk_percent: string; result: TradeResult; pnl: string; r_multiple: string;
+  entry_model: string; psychology_before: string[]; notes: string;
+}
+const EMPTY: FormData = { pair:"EURUSD", direction:"buy", trade_time:"", session:"", entry_price:"", stop_loss:"", take_profit:"", lot_size:"", exit_price:"", account_size:"10000", risk_percent:"1", result:"open", pnl:"", r_multiple:"", entry_model:"", psychology_before:[], notes:"" };
+
+function TradeCard({ trade, onDelete }: { trade: JournalTrade; onDelete: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [del, startDel] = useTransition();
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors text-left" onClick={() => setExpanded(!expanded)}>
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold flex-shrink-0">{trade.trade_number ?? "?"}</span>
+        <span className={cn("flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-bold", trade.direction==="buy"?"bg-profit/10 text-profit":"bg-loss/10 text-loss")}>
+          {trade.direction==="buy"?<TrendingUp className="h-3 w-3"/>:<TrendingDown className="h-3 w-3"/>} {trade.direction.toUpperCase()}
+        </span>
+        <span className="font-bold text-sm">{trade.pair}</span>
+        {trade.trade_time && <span className="text-xs text-muted-foreground">{trade.trade_time}</span>}
+        <span className={cn("ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase border", RESULT_COLORS[trade.result])}>{trade.result}</span>
+        {trade.pnl!=null && <span className={cn("text-sm font-bold tabular-nums ml-2", trade.pnl>=0?"text-profit":"text-loss")}>{trade.pnl>=0?"+":""} ${fmt(Math.abs(trade.pnl))}</span>}
+        {trade.r_multiple!=null && <span className="text-xs text-muted-foreground tabular-nums">{trade.r_multiple>=0?"+":""}{fmt(trade.r_multiple)}R</span>}
+        {expanded?<ChevronDown className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0"/>:<ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0"/>}
+      </button>
+      {expanded && (
+        <div className="border-t border-border px-4 py-3 bg-accent/10 space-y-3">
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
+            {[["Entry",trade.entry_price],["SL",trade.stop_loss],["TP",trade.take_profit],["Exit",trade.exit_price],["Lots",trade.lot_size],["Risk%",trade.risk_percent!=null?`${trade.risk_percent}%`:null],["Risk$",trade.risk_amount!=null?`$${fmt(trade.risk_amount)}`:null],["R:R",trade.rr_ratio!=null?`1:${trade.rr_ratio}`:null]].map(([l,v])=>v!=null?(
+              <div key={l as string}><p className="text-muted-foreground">{l}</p><p className="font-semibold tabular-nums">{String(v)}</p></div>
+            ):null)}
+          </div>
+          {trade.entry_model && <p className="text-xs"><span className="text-muted-foreground">Model: </span><span className="font-medium">{trade.entry_model}</span></p>}
+          {trade.notes && <p className="text-xs text-muted-foreground italic">{trade.notes}</p>}
+          {trade.psychology_before.length>0 && <div className="flex flex-wrap gap-1">{trade.psychology_before.map((p)=><span key={p} className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px]">{p}</span>)}</div>}
+          <div className="flex justify-end">
+            <button onClick={()=>startDel(async()=>{await deleteJournalTrade(trade.id);onDelete();})} disabled={del} className="flex items-center gap-1.5 rounded-md px-3 h-7 text-xs text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors">
+              {del?<Loader2 className="h-3 w-3 animate-spin"/>:<Trash2 className="h-3 w-3"/>} Delete
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
