@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { FlaskConical, Plus, X, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Trash2, ArrowRight, AlertTriangle, Check } from "lucide-react";
+import { FlaskConical, Plus, X, Loader2, TrendingUp, TrendingDown, ChevronDown, ChevronRight, Trash2, ArrowRight, AlertTriangle, Check, Save, Edit2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createJournalTrade, deleteJournalTrade, updateJournalTrade } from "@/lib/actions/trading-os";
 import { attachTradeScreenshot, deleteScreenshot } from "@/lib/actions/screenshots";
@@ -29,22 +29,74 @@ const EMPTY: FormData = { pair:"EURUSD", direction:"buy", trade_time:"", session
 function TradeCard({
   trade,
   onDelete,
+  onUpdate,
   onScreenshotChange,
 }: {
   trade: JournalTrade;
   onDelete: () => void;
+  onUpdate: (updated: Partial<JournalTrade>) => void;
   onScreenshotChange: (id: string, url: string | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, startSave] = useTransition();
   const [del, startDel] = useTransition();
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(trade.screenshot_path ?? null);
+
+  // Edit form state — pre-filled from trade
+  const [ef, setEf] = useState({
+    pair: trade.pair,
+    direction: trade.direction as "buy"|"sell",
+    trade_time: trade.trade_time ?? "",
+    session: trade.session ?? "",
+    entry_price: trade.entry_price?.toString() ?? "",
+    stop_loss: trade.stop_loss?.toString() ?? "",
+    take_profit: trade.take_profit?.toString() ?? "",
+    exit_price: trade.exit_price?.toString() ?? "",
+    lot_size: trade.lot_size?.toString() ?? "",
+    account_size: trade.account_size?.toString() ?? "",
+    risk_percent: trade.risk_percent?.toString() ?? "",
+    pnl: trade.pnl?.toString() ?? "",
+    r_multiple: trade.r_multiple?.toString() ?? "",
+    result: trade.result as TradeResult,
+    entry_model: trade.entry_model ?? "",
+    notes: trade.notes ?? "",
+  });
+
+  const editRR = calcRR(ef.entry_price, ef.stop_loss, ef.take_profit);
+  const editRisk = calcRiskAmount(ef.account_size, ef.risk_percent);
+
+  function handleSaveEdit() {
+    startSave(async () => {
+      const updates = {
+        pair: ef.pair,
+        direction: ef.direction,
+        trade_time: ef.trade_time || null,
+        session: ef.session || null,
+        entry_price: ef.entry_price ? parseFloat(ef.entry_price) : null,
+        stop_loss: ef.stop_loss ? parseFloat(ef.stop_loss) : null,
+        take_profit: ef.take_profit ? parseFloat(ef.take_profit) : null,
+        exit_price: ef.exit_price ? parseFloat(ef.exit_price) : null,
+        lot_size: ef.lot_size ? parseFloat(ef.lot_size) : null,
+        account_size: ef.account_size ? parseFloat(ef.account_size) : null,
+        risk_percent: ef.risk_percent ? parseFloat(ef.risk_percent) : null,
+        risk_amount: editRisk,
+        rr_ratio: editRR,
+        pnl: ef.pnl ? parseFloat(ef.pnl) : null,
+        r_multiple: ef.r_multiple ? parseFloat(ef.r_multiple) : null,
+        result: ef.result,
+        entry_model: ef.entry_model || null,
+        notes: ef.notes || null,
+      };
+      await updateJournalTrade(trade.id, updates);
+      onUpdate(updates);
+      setEditing(false);
+    });
+  }
 
   async function handleScreenshotUploaded(url: string) {
     setScreenshotUrl(url);
     onScreenshotChange(trade.id, url);
-    // attachTradeScreenshot handles delete-old + updateJournalTrade internally
-    const fd = new FormData();
-    // We already uploaded via ScreenshotUpload, just update the DB record
     await updateJournalTrade(trade.id, { screenshot_path: url });
   }
 
@@ -57,6 +109,7 @@ function TradeCard({
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
+      {/* Row header */}
       <button className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors text-left" onClick={() => setExpanded(!expanded)}>
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-bold flex-shrink-0">{trade.trade_number ?? "?"}</span>
         <span className={cn("flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-bold", trade.direction==="buy"?"bg-profit/10 text-profit":"bg-loss/10 text-loss")}>
@@ -73,41 +126,127 @@ function TradeCard({
 
       {expanded && (
         <div className="border-t border-border px-4 py-4 bg-accent/10 space-y-4">
-          {/* Prices grid */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
-            {[["Entry",trade.entry_price],["SL",trade.stop_loss],["TP",trade.take_profit],["Exit",trade.exit_price],["Lots",trade.lot_size],["Risk%",trade.risk_percent!=null?`${trade.risk_percent}%`:null],["Risk$",trade.risk_amount!=null?`$${fmt(trade.risk_amount)}`:null],["R:R",trade.rr_ratio!=null?`1:${trade.rr_ratio}`:null]].map(([l,v])=>v!=null?(
-              <div key={l as string}><p className="text-muted-foreground">{l}</p><p className="font-semibold tabular-nums">{String(v)}</p></div>
-            ):null)}
-          </div>
 
-          {trade.entry_model && <p className="text-xs"><span className="text-muted-foreground">Model: </span><span className="font-medium">{trade.entry_model}</span></p>}
-          {trade.session && <p className="text-xs"><span className="text-muted-foreground">Session: </span><span className="font-medium">{trade.session}</span></p>}
-          {trade.notes && <p className="text-xs text-muted-foreground italic border-l-2 border-border pl-2">{trade.notes}</p>}
-          {trade.psychology_before.length>0 && (
-            <div className="flex flex-wrap gap-1">
-              {trade.psychology_before.map((p)=><span key={p} className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px]">{p}</span>)}
+          {editing ? (
+            /* ── EDIT MODE ── */
+            <div className="space-y-4">
+              <p className="text-xs font-bold text-primary">Editing Trade #{trade.trade_number}</p>
+
+              {/* Pair + Direction + Time + Session */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1"><label className="text-[10px] text-muted-foreground">Pair</label>
+                  <select value={ef.pair} onChange={e=>setEf(f=>({...f,pair:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs">
+                    {DEFAULT_PAIRS.map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1"><label className="text-[10px] text-muted-foreground">Direction</label>
+                  <div className="flex gap-1">
+                    {(["buy","sell"] as const).map(d=>(
+                      <button key={d} onClick={()=>setEf(f=>({...f,direction:d}))} className={cn("flex-1 h-8 rounded-md text-xs font-bold capitalize border transition-colors",ef.direction===d?(d==="buy"?"bg-profit/15 border-profit/50 text-profit":"bg-loss/15 border-loss/50 text-loss"):"border-border text-muted-foreground hover:bg-accent")}>{d}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-1"><label className="text-[10px] text-muted-foreground">Time</label>
+                  <input type="time" value={ef.trade_time} onChange={e=>setEf(f=>({...f,trade_time:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"/>
+                </div>
+                <div className="space-y-1"><label className="text-[10px] text-muted-foreground">Session</label>
+                  <select value={ef.session} onChange={e=>setEf(f=>({...f,session:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs">
+                    <option value="">—</option>{TRADING_SESSIONS.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Prices */}
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {[["entry_price","Entry"],["stop_loss","SL"],["take_profit","TP"],["exit_price","Exit"],["lot_size","Lots"]].map(([field,label])=>(
+                  <div key={field} className="space-y-1"><label className="text-[10px] text-muted-foreground">{label}</label>
+                    <input type="number" step="any" value={ef[field as keyof typeof ef] as string} onChange={e=>setEf(f=>({...f,[field]:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"/>
+                  </div>
+                ))}
+              </div>
+              {(editRR||editRisk)&&<div className="flex gap-4 text-xs">{editRR&&<span className="text-muted-foreground">R:R = <strong>1:{editRR}</strong></span>}{editRisk&&<span className="text-muted-foreground">Risk $ = <strong>${fmt(editRisk)}</strong></span>}</div>}
+
+              {/* Risk + Outcome */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[["account_size","Account $"],["risk_percent","Risk %"],["pnl","P/L ($)"],["r_multiple","R"]].map(([field,label])=>(
+                  <div key={field} className="space-y-1"><label className="text-[10px] text-muted-foreground">{label}</label>
+                    <input type="number" step="any" value={ef[field as keyof typeof ef] as string} onChange={e=>setEf(f=>({...f,[field]:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"/>
+                  </div>
+                ))}
+              </div>
+
+              {/* Result */}
+              <div className="flex flex-wrap gap-1.5">
+                {(["open","win","loss","breakeven","cancelled"] as TradeResult[]).map(r=>(
+                  <button key={r} onClick={()=>setEf(f=>({...f,result:r}))} className={cn("px-2.5 py-0.5 rounded-full text-xs font-bold capitalize border transition-colors",ef.result===r?(r==="win"?"bg-profit text-white border-profit":r==="loss"?"bg-loss text-white border-loss":r==="open"?"bg-blue-400 text-white border-blue-400":"bg-muted-foreground text-white border-muted-foreground"):"border-border text-muted-foreground hover:bg-accent")}>{r}</button>
+                ))}
+              </div>
+
+              {/* Model + Notes */}
+              <div className="grid sm:grid-cols-2 gap-2">
+                <div className="space-y-1"><label className="text-[10px] text-muted-foreground">Model</label>
+                  <select value={ef.entry_model} onChange={e=>setEf(f=>({...f,entry_model:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs">
+                    <option value="">—</option>{ENTRY_MODELS.map(m=><option key={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1"><label className="text-[10px] text-muted-foreground">Notes</label>
+                  <input type="text" value={ef.notes} onChange={e=>setEf(f=>({...f,notes:e.target.value}))} className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"/>
+                </div>
+              </div>
+
+              {/* Edit actions */}
+              <div className="flex gap-2 justify-end">
+                <button onClick={()=>setEditing(false)} className="rounded-md border border-border px-3 h-7 text-xs hover:bg-accent transition-colors">Cancel</button>
+                <button onClick={handleSaveEdit} disabled={saving} className="flex items-center gap-1.5 rounded-md bg-primary text-primary-foreground px-3 h-7 text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50">
+                  {saving?<Loader2 className="h-3 w-3 animate-spin"/>:<Save className="h-3 w-3"/>} Save Changes
+                </button>
+              </div>
             </div>
+          ) : (
+            /* ── VIEW MODE ── */
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 text-xs">
+                {[["Entry",trade.entry_price],["SL",trade.stop_loss],["TP",trade.take_profit],["Exit",trade.exit_price],["Lots",trade.lot_size],["Risk%",trade.risk_percent!=null?`${trade.risk_percent}%`:null],["Risk$",trade.risk_amount!=null?`$${fmt(trade.risk_amount)}`:null],["R:R",trade.rr_ratio!=null?`1:${trade.rr_ratio}`:null]].map(([l,v])=>v!=null?(
+                  <div key={l as string}><p className="text-muted-foreground">{l}</p><p className="font-semibold tabular-nums">{String(v)}</p></div>
+                ):null)}
+              </div>
+              {trade.entry_model && <p className="text-xs"><span className="text-muted-foreground">Model: </span><span className="font-medium">{trade.entry_model}</span></p>}
+              {trade.session && <p className="text-xs"><span className="text-muted-foreground">Session: </span><span className="font-medium">{trade.session}</span></p>}
+              {trade.notes && <p className="text-xs text-muted-foreground italic border-l-2 border-border pl-2">{trade.notes}</p>}
+              {trade.psychology_before.length>0 && (
+                <div className="flex flex-wrap gap-1">
+                  {trade.psychology_before.map((p)=><span key={p} className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px]">{p}</span>)}
+                </div>
+              )}
+            </>
           )}
 
-          {/* Screenshot Upload */}
-          <ScreenshotUpload
-            currentUrl={screenshotUrl}
-            folder={`trades/${trade.trading_day_id}`}
-            label="Trade Screenshot"
-            onUploaded={handleScreenshotUploaded}
-            onDeleted={handleScreenshotDeleted}
-          />
+          {/* Screenshot Upload — always visible */}
+          {!editing && (
+            <ScreenshotUpload
+              currentUrl={screenshotUrl}
+              folder={`trades/${trade.trading_day_id}`}
+              label="Trade Screenshot"
+              onUploaded={handleScreenshotUploaded}
+              onDeleted={handleScreenshotDeleted}
+            />
+          )}
 
-          {/* Delete */}
-          <div className="flex justify-end pt-1">
-            <button
-              onClick={() => startDel(async () => { await deleteJournalTrade(trade.id); onDelete(); })}
-              disabled={del}
-              className="flex items-center gap-1.5 rounded-md px-3 h-7 text-xs text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors"
-            >
-              {del?<Loader2 className="h-3 w-3 animate-spin"/>:<Trash2 className="h-3 w-3"/>} Delete Trade
-            </button>
-          </div>
+          {/* Action row */}
+          {!editing && (
+            <div className="flex items-center justify-between pt-1">
+              <button onClick={()=>setEditing(true)} className="flex items-center gap-1.5 rounded-md px-3 h-7 text-xs font-medium border border-border hover:bg-accent transition-colors">
+                <Edit2 className="h-3 w-3"/> Edit
+              </button>
+              <button
+                onClick={() => startDel(async () => { await deleteJournalTrade(trade.id); onDelete(); })}
+                disabled={del}
+                className="flex items-center gap-1.5 rounded-md px-3 h-7 text-xs text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors"
+              >
+                {del?<Loader2 className="h-3 w-3 animate-spin"/>:<Trash2 className="h-3 w-3"/>} Delete
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -151,6 +290,10 @@ export function TradeExecutionSection({ day, onNext }: Props) {
 
   function handleDelete(id: string) {
     setTrades(prev => prev.filter(t => t.id !== id));
+  }
+
+  function handleUpdate(id: string, updates: Partial<JournalTrade>) {
+    setTrades(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
   }
 
   function handleScreenshotChange(id: string, url: string | null) {
@@ -268,6 +411,7 @@ export function TradeExecutionSection({ day, onNext }: Props) {
             key={t.id}
             trade={t}
             onDelete={() => handleDelete(t.id)}
+            onUpdate={(updates) => handleUpdate(t.id, updates)}
             onScreenshotChange={handleScreenshotChange}
           />
         )) : (
